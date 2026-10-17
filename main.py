@@ -1,15 +1,18 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+import torch
 import soundfile as sf
 import os
 import uuid
 import tempfile
-from f5_myanmar_tts import MyanmarTTS
+from huggingface_hub import hf_hub_download
 
 app = FastAPI(title="K9 AI", version="0.1.0")
 
-tts = None
+model = None
+vocos_path = None
+ref_audio_path = None
 load_error = None
 
 class TTSRequest(BaseModel):
@@ -17,11 +20,19 @@ class TTSRequest(BaseModel):
 
 @app.on_event("startup")
 def load_model():
-    global tts, load_error
-    print("Loading F5-Myanmar-TTS model...")
+    global model, vocos_path, ref_audio_path, load_error
+    print("Downloading and loading MyanmarTTS model...")
     try:
-        # Auto-downloads model on first run
-        tts = MyanmarTTS()
+        # Import inside startup so errors are caught
+        from api import StableTTSAPI
+        from burmese import burmese_to_ipa2
+        
+        model_path = hf_hub_download("freococo/MyanmarTTS", "model_fp16.pt")
+        vocos_path = hf_hub_download("freococo/MyanmarTTS", "vocos.pt")
+        ref_audio_path = hf_hub_download("freococo/MyanmarTTS", "samples/sample_0.wav")
+        
+        model = StableTTSAPI(model_path, vocos_path, "vocos").to("cpu")
+        model.g2p_mapping["burmese"] = burmese_to_ipa2
         print("Model loaded successfully!")
     except Exception as e:
         load_error = str(e)
@@ -37,17 +48,25 @@ def health():
 
 @app.post("/tts")
 def generate_tts(request: TTSRequest):
-    if tts is None:
-        detail_msg = f"Model is still loading or failed to load. Error: {load_error}" if load_error else "Model is still loading."
+    if model is None:
+        detail_msg = f"Model failed to load. Error: {load_error}" if load_error else "Model is still loading."
         raise HTTPException(status_code=503, detail=detail_msg)
     
     try:
+        audio, _ = model.inference(
+            request.text, 
+            ref_audio_path, 
+            "burmese", 
+            step=32, 
+            solver="dopri5", 
+            cfg=3.0
+        )
+        
         temp_dir = tempfile.gettempdir()
         file_name = f"{uuid.uuid4()}.wav"
         file_path = os.path.join(temp_dir, file_name)
         
-        # Generate speech using F5-Myanmar-TTS
-        tts.speak(request.text, output_file=file_path)
+        sf.write(file_path, audio.squeeze(0).cpu().numpy(), 44100)
         
         return FileResponse(file_path, media_type="audio/wav", filename="k9_voice.wav")
     except Exception as e:
