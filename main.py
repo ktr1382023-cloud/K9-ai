@@ -10,17 +10,17 @@ from huggingface_hub import hf_hub_download
 
 app = FastAPI(title="K9 AI", version="0.1.0")
 
-# Global variables to hold model
 model = None
 vocos_path = None
 ref_audio_path = None
+load_error = None
 
 class TTSRequest(BaseModel):
     text: str
 
 @app.on_event("startup")
 def load_model():
-    global model, vocos_path, ref_audio_path
+    global model, vocos_path, ref_audio_path, load_error
     print("Downloading and loading MyanmarTTS model...")
     try:
         model_path = hf_hub_download("freococo/MyanmarTTS", "model_fp16.pt")
@@ -34,6 +34,7 @@ def load_model():
         model.g2p_mapping["burmese"] = burmese_to_ipa2
         print("Model loaded successfully!")
     except Exception as e:
+        load_error = str(e)
         print(f"Error loading model: {e}")
 
 @app.get("/")
@@ -47,7 +48,8 @@ def health():
 @app.post("/tts")
 def generate_tts(request: TTSRequest):
     if model is None:
-        raise HTTPException(status_code=503, detail="Model is still loading or failed to load.")
+        detail_msg = f"Model is still loading or failed to load. Error: {load_error}" if load_error else "Model is still loading."
+        raise HTTPException(status_code=503, detail=detail_msg)
     
     try:
         audio, _ = model.inference(
