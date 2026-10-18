@@ -1,10 +1,9 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 gunicorn==23.0.0
-python-multipart==0.0.20
-torch --index-url https://download.pytorch.org/whl/cpu
+fastapi==0.0.20
 huggingface_hub
 soundfile
 numpy
-MyanmarTTS
 vocos
+myanmartts==1.0.2
