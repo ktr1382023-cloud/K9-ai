@@ -23,7 +23,6 @@ def load_model():
     global model, vocos_path, ref_audio_path, load_error
     print("Downloading and loading MyanmarTTS model...")
     try:
-        # Import inside startup so errors are caught
         from api import StableTTSAPI
         from burmese import burmese_to_ipa2
         
