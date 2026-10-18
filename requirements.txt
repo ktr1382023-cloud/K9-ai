@@ -6,5 +6,4 @@ torch --index-url https://download.pytorch.org/whl/cpu
 huggingface_hub
 soundfile
 numpy
-git+https://github.com/freococo/myanmar-tts.git
-```
+MyanmarTTS
