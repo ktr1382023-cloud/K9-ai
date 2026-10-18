@@ -10,9 +10,9 @@ from huggingface_hub import hf_hub_download
 
 app = FastAPI(title="K9 AI", version="0.1.0")
 
+# Note: The correct class for MyanmarTTS might be different. 
+# We are trying a direct approach here.
 model = None
-vocos_path = None
-ref_audio_path = None
 load_error = None
 
 class TTSRequest(BaseModel):
@@ -20,18 +20,12 @@ class TTSRequest(BaseModel):
 
 @app.on_event("startup")
 def load_model():
-    global model, vocos_path, ref_audio_path, load_error
-    print("Downloading and loading MyanmarTTS model...")
+    global model, load_error
+    print("Loading MyanmarTTS...")
     try:
-        from api import StableTTSAPI
-        from burmese import burmese_to_ipa2
-        
-        model_path = hf_hub_download("freococo/MyanmarTTS", "model_fp16.pt")
-        vocos_path = hf_hub_download("freococo/MyanmarTTS", "vocos.pt")
-        ref_audio_path = hf_hub_download("freococo/MyanmarTTS", "samples/sample_0.wav")
-        
-        model = StableTTSAPI(model_path, vocos_path, "vocos").to("cpu")
-        model.g2p_mapping["burmese"] = burmese_to_ipa2
+        # Attempt to import directly from the package name
+        from myanmartts import MyanmarTTS
+        model = MyanmarTTS()
         print("Model loaded successfully!")
     except Exception as e:
         load_error = str(e)
@@ -39,7 +33,7 @@ def load_model():
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "K9 AI backend is running"}
+    return {"status": "ok"}
 
 @app.get("/health")
 def health():
@@ -48,24 +42,15 @@ def health():
 @app.post("/tts")
 def generate_tts(request: TTSRequest):
     if model is None:
-        detail_msg = f"Model failed to load. Error: {load_error}" if load_error else "Model is still loading."
-        raise HTTPException(status_code=503, detail=detail_msg)
+        raise HTTPException(status_code=503, detail=f"Error: {load_error}")
     
     try:
-        audio, _ = model.inference(
-            request.text, 
-            ref_audio_path, 
-            "burmese", 
-            step=32, 
-            solver="dopri5", 
-            cfg=3.0
-        )
-        
         temp_dir = tempfile.gettempdir()
         file_name = f"{uuid.uuid4()}.wav"
         file_path = os.path.join(temp_dir, file_name)
         
-        sf.write(file_path, audio.squeeze(0).cpu().numpy(), 44100)
+        # Generate audio
+        model.speak(request.text, output_file=file_path)
         
         return FileResponse(file_path, media_type="audio/wav", filename="k9_voice.wav")
     except Exception as e:
