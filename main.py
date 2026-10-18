@@ -1,70 +1,82 @@
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-import torch
+from myanmar_tts import MyanmarTTS
 import soundfile as sf
 import os
 import uuid
 import tempfile
-from huggingface_hub import hf_hub_download
 
-app = FastAPI(title="K9 AI", version="0.1.0")
+app = FastAPI(title="K9 AI", version="0.2.0")
 
 model = None
-ref_audio_path = None
 load_error = None
+
 
 class TTSRequest(BaseModel):
     text: str
 
+
 @app.on_event("startup")
 def load_model():
-    global model, ref_audio_path, load_error
-    print("Loading MyanmarTTS...")
+    global model, load_error
+
     try:
-        from api import StableTTSAPI
-        from burmese import burmese_to_ipa2
-        
-        model_path = hf_hub_download("freococo/MyanmarTTS", "model_fp16.pt")
-        vocos_path = hf_hub_download("freococo/MyanmarTTS", "vocos.pt")
-        ref_audio_path = hf_hub_download("freococo/MyanmarTTS", "samples/sample_0.wav")
-        
-        model = StableTTSAPI(model_path, vocos_path, "vocos").to("cpu")
-        model.g2p_mapping["burmese"] = burmese_to_ipa2
-        print("Model loaded successfully!")
+        print("Loading K9 Myanmar voice model...")
+        model = MyanmarTTS(device="cpu")
+        print("K9 model loaded successfully!")
+
     except Exception as e:
         load_error = str(e)
-        print(f"Error loading model: {e}")
+        print(f"Model loading error: {e}")
+
 
 @app.get("/")
 def root():
-    return {"status": "ok"}
+    return {"status": "K9 AI Voice is running"}
+
 
 @app.get("/health")
 def health():
     return {"status": "healthy"}
 
+
 @app.post("/tts")
 def generate_tts(request: TTSRequest):
     if model is None:
-        raise HTTPException(status_code=503, detail=f"Error: {load_error}")
-    
+        raise HTTPException(
+            status_code=503,
+            detail=f"Model loading error: {load_error}"
+        )
+
+    if not request.text.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="စာသားထည့်ပေးပါ"
+        )
+
     try:
-        audio, _ = model.inference(
-            request.text, 
-            ref_audio_path, 
-            "burmese", 
-            step=32, 
-            solver="dopri5", 
+        audio = model.tts(
+            request.text,
+            solver="euler",
+            step=12,
             cfg=3.0
         )
-        
-        temp_dir = tempfile.gettempdir()
-        file_name = f"{uuid.uuid4()}.wav"
-        file_path = os.path.join(temp_dir, file_name)
-        
-        sf.write(file_path, audio.squeeze(0).cpu().numpy(), 44100)
-        
-        return FileResponse(file_path, media_type="audio/wav", filename="k9_voice.wav")
+
+        file_path = os.path.join(
+            tempfile.gettempdir(),
+            f"{uuid.uuid4()}.wav"
+        )
+
+        sf.write(file_path, audio, 44100)
+
+        return FileResponse(
+            file_path,
+            media_type="audio/wav",
+            filename="k9_voice.wav"
+        )
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+        
